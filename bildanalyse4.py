@@ -90,6 +90,22 @@ if modus == "Fleckengruppen":
     col1, col2 = st.columns([1, 2])
 
     with col1:
+        # 📌 Farbkanal zuschneiden je nach Modus
+crop_channel = get_crop_channel(img_array_rgb, x_start, x_end, y_start, y_end, color_mode)
+
+# 🛠️ Schwellenwert aktualisieren / initialisieren
+if "color_thresh" not in st.session_state:
+    st.session_state.color_thresh = color_thresh  # Standardwert aus Slider übernehmen
+
+# 🎯 Schwelle automatisch ermitteln (optional)
+if st.button("🔎 Beste Schwelle (Gruppenanzahl) ermitteln"):
+    best_thresh, score = finde_beste_schwelle(crop_channel, min_area, max_area, group_diameter)
+    st.session_state.color_thresh = best_thresh
+    st.success(f"✅ Beste Schwelle: {best_thresh} ({score} Gruppen)")
+
+# 🧮 Visuelle Kontrolle
+st.sidebar.write(f"🔍 Aktive Schwelle: `{st.session_state.color_thresh}`")
+
         st.markdown("### 🔧 Einstellungen")
         x_start = st.slider("Start-X", 0, w - 1, 0)
         x_end = st.slider("End-X", x_start + 1, w, w)
