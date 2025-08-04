@@ -19,7 +19,10 @@ img_array_rgb = np.array(img_rgb)
 w, h = img_rgb.size
 
 # 🎛️ Sidebar-Einstellungen
-color_mode = st.sidebar.selectbox("🎨 Farbmodus", ["Rot", "Grün", "Blau", "Grauwert"])
+
+color_mode = st.sidebar.selectbox("🎨 Farbmodus", ["Rot", "Grün", "Blau", "Violett", "Grauwert"])
+
+
 color_thresh = st.sidebar.slider("🧪 Farbschwelle", 0, 255, 150)
 circle_color = st.sidebar.color_picker("🎨 Farbe für Fleckengruppen", "#FF0000")
 spot_color = st.sidebar.color_picker("🟦 Farbe für einzelne Flecken", "#00FFFF")
@@ -35,12 +38,17 @@ def get_crop_channel(img_array_rgb, x_start, x_end, y_start, y_end, color_mode):
         return img_array_rgb[y_start:y_end, x_start:x_end, 1]
     elif color_mode == "Blau":
         return img_array_rgb[y_start:y_end, x_start:x_end, 2]
-    else:  # Grauwert (Luminanz)
+    elif color_mode == "Violett":
+        red_crop = img_array_rgb[y_start:y_end, x_start:x_end, 0]
+        blue_crop = img_array_rgb[y_start:y_end, x_start:x_end, 2]
+        return ((red_crop.astype(int) + blue_crop.astype(int)) // 2).astype(np.uint8)
+    elif color_mode == "Grauwert":
         r = img_array_rgb[y_start:y_end, x_start:x_end, 0]
         g = img_array_rgb[y_start:y_end, x_start:x_end, 1]
         b = img_array_rgb[y_start:y_end, x_start:x_end, 2]
         luminance = (0.299 * r + 0.587 * g + 0.114 * b).astype(np.uint8)
         return luminance
+
 
 # 🧠 Funktion: Beste Schwelle anhand Fleckengruppenanzahl
 def finde_beste_schwelle(crop_channel, min_area, max_area, group_diameter):
