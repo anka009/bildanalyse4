@@ -19,13 +19,28 @@ img_array_rgb = np.array(img_rgb)
 w, h = img_rgb.size
 
 # 🎛️ Sidebar-Einstellungen
-color_mode = st.sidebar.selectbox("🎨 Farbmodus", ["Rot", "Grün", "Blau"])
+color_mode = st.sidebar.selectbox("🎨 Farbmodus", ["Rot", "Grün", "Blau", "Grauwert"])
 color_thresh = st.sidebar.slider("🧪 Farbschwelle", 0, 255, 150)
 circle_color = st.sidebar.color_picker("🎨 Farbe für Fleckengruppen", "#FF0000")
 spot_color = st.sidebar.color_picker("🟦 Farbe für einzelne Flecken", "#00FFFF")
 circle_width = st.sidebar.slider("✒️ Liniendicke (Gruppen)", 1, 10, 6)
 spot_radius = st.sidebar.slider("🔘 Flecken-Radius", 1, 20, 6)
 modus = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
+
+# 🎨 Farbkanal oder Grauwert extrahieren
+def get_crop_channel(img_array_rgb, x_start, x_end, y_start, y_end, color_mode):
+    if color_mode == "Rot":
+        return img_array_rgb[y_start:y_end, x_start:x_end, 0]
+    elif color_mode == "Grün":
+        return img_array_rgb[y_start:y_end, x_start:x_end, 1]
+    elif color_mode == "Blau":
+        return img_array_rgb[y_start:y_end, x_start:x_end, 2]
+    else:  # Grauwert (Luminanz)
+        r = img_array_rgb[y_start:y_end, x_start:x_end, 0]
+        g = img_array_rgb[y_start:y_end, x_start:x_end, 1]
+        b = img_array_rgb[y_start:y_end, x_start:x_end, 2]
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b).astype(np.uint8)
+        return luminance
 
 # 🧠 Funktion: Beste Schwelle anhand Fleckengruppenanzahl
 def finde_beste_schwelle(crop_channel, min_area, max_area, group_diameter):
@@ -76,13 +91,7 @@ if modus == "Fleckengruppen":
         max_area = st.slider("Maximale Fleckengröße", min_area, 1000, 250)
         group_diameter = st.slider("Gruppendurchmesser", 20, 500, 60)
 
-        # Farbkanal entsprechend Auswahl zuschneiden
-        if color_mode == "Rot":
-            crop_channel = img_array_rgb[y_start:y_end, x_start:x_end, 0]
-        elif color_mode == "Grün":
-            crop_channel = img_array_rgb[y_start:y_end, x_start:x_end, 1]
-        else:  # Blau
-            crop_channel = img_array_rgb[y_start:y_end, x_start:x_end, 2]
+        crop_channel = get_crop_channel(img_array_rgb, x_start, x_end, y_start, y_end, color_mode)
 
         if st.button("🔎 Beste Schwelle (Gruppenanzahl) ermitteln"):
             best_thresh, score = finde_beste_schwelle(crop_channel, min_area, max_area, group_diameter)
@@ -147,4 +156,3 @@ if modus == "Fleckengruppen":
                     width=circle_width
                 )
         st.image(draw_img, caption="🖼️ Fleckengruppen-Vorschau", use_column_width=True)
-
