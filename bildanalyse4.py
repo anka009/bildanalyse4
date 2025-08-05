@@ -1,138 +1,150 @@
 import streamlit as st
 from PIL import Image, ImageDraw
 import numpy as np
-import matplotlib.pyplot as plt
-from skimage.filters import threshold_otsu
-import scipy.ndimage as ndi
-from sklearn.cluster import DBSCAN
+from scipy.ndimage import label, find_objects
+from io import BytesIO
 
-# Seite konfigurieren
-st.set_page_config(page_title="Komfort-Bildanalyse", layout="wide")
-st.title("🧪 Komfort-Bildanalyse-App")
+# 📄 Seiteneinstellungen
+st.set_page_config(page_title="Bildanalyse Komfort-App", layout="wide")
+st.title("🧪 Bildanalyse Komfort-App")
 
-# Sidebar: Bild-Upload
-uploaded = st.sidebar.file_uploader(
-    "Bild hochladen", type=["png", "jpg", "jpeg", "tif", "tiff"]
-)
-if not uploaded:
-    st.sidebar.warning("Bitte ein Bild hochladen.")
+# 📁 Bild-Upload
+uploaded_file = st.sidebar.file_uploader("📁 Bild auswählen", type=["png", "jpg", "jpeg", "tif", "tiff"])
+if not uploaded_file:
+    st.warning("Bitte zuerst ein Bild hochladen.")
     st.stop()
 
-# Originalbild laden und downsizen (max. 800×800 px)
-orig = Image.open(uploaded).convert("RGB")
-orig.thumbnail((800, 800), Image.ANTIALIAS)
+img_rgb = Image.open(uploaded_file).convert("RGB")
+img_gray = img_rgb.convert("L")
+img_array = np.array(img_gray)
+w, h = img_rgb.size
 
-# Original sofort anzeigen
-st.subheader("Originalbild")
-st.image(orig, use_column_width=True)
+# 🧠 Beste Schwelle anhand der Fleckengruppenanzahl
+def finde_beste_schwelle(cropped_array, min_area, max_area, group_diameter):
+    best_score, best_thresh = -1, 0
+    for thresh in range(50, 200, 5):
+        mask = cropped_array < thresh
+        labeled_array, _ = label(mask)
+        objects = find_objects(labeled_array)
 
-# Graustufen-Array
-gray = np.array(orig.convert("L"))
+        centers = [
+            ((obj[1].start + obj[1].stop) // 2, (obj[0].start + obj[0].stop) // 2)
+            for obj in objects
+            if min_area <= np.sum(labeled_array[obj] > 0) <= max_area
+        ]
 
-# Otsu-Schwellenwert vorschlagen
-otsu_val = threshold_otsu(gray)
-thresh = st.sidebar.slider(
-    "Intensitäts-Schwellenwert",
-    0,
-    255,
-    int(otsu_val),
-    help=f"Otsu-Empfehlung: {int(otsu_val)}",
-)
+        grouped, visited = [], set()
+        for i, (x1, y1) in enumerate(centers):
+            if i in visited:
+                continue
+            gruppe = [(x1, y1)]
+            visited.add(i)
+            for j, (x2, y2) in enumerate(centers):
+                if j in visited:
+                    continue
+                if ((x1 - x2)**2 + (y1 - y2)**2)**0.5 <= group_diameter / 2:
+                    gruppe.append((x2, y2))
+                    visited.add(j)
+            grouped.append(gruppe)
 
-# Histogramm mit Interaktivität
-with st.sidebar.expander("Histogramm"):
-    fig, ax = plt.subplots(figsize=(4, 2.5))
-    ax.hist(gray.ravel(), bins=256, color="gray", alpha=0.7)
-    ax.axvline(thresh, color="red", lw=2, label=f"Thresh = {thresh}")
-    ax.set_xlabel("Intensität")
-    ax.set_ylabel("Pixelanzahl")
-    ax.legend()
-    st.pyplot(fig)
+        score = len(grouped)  # ✅ Bewertet anhand der Gruppenzahl
+        if score > best_score:
+            best_score, best_thresh = score, thresh
 
-# Cache für binäre Maske & Labeling
-@st.experimental_memo
-def compute_mask_labels(gray_arr, thr):
-    mask = gray_arr > thr
-    labels, num = ndi.label(mask)
-    return mask, labels, num
+    return best_thresh, best_score
 
-mask, labels, num_labels = compute_mask_labels(gray, thresh)
+# 🎛️ Sidebar-Einstellungen
+modus = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
+circle_color = st.sidebar.color_picker("🎨 Farbe für Fleckengruppen", "#FF0000")
+spot_color = st.sidebar.color_picker("🟦 Farbe für einzelne Flecken", "#00FFFF")
+circle_width = st.sidebar.slider("✒️ Liniendicke (Gruppen)", 1, 10, 6)
+spot_radius = st.sidebar.slider("🔘 Flecken-Radius", 1, 20, 10)
 
-# Sidebar: Optionen
-show_mask = st.sidebar.checkbox("Binärmaske anzeigen", value=False)
+# ▓▓▓ MODUS: Fleckengruppen ▓▓▓
+if modus == "Fleckengruppen":
+    st.subheader("🧠 Fleckengruppen erkennen")
+    col1, col2 = st.columns([1, 2])
 
-mode = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
+    with col1:
+        st.markdown("### 🔧 Einstellungen")
+        x_start = st.slider("Start-X", 0, w - 1, 0)
+        x_end = st.slider("End-X", x_start + 1, w, w)
+        y_start = st.slider("Start-Y", 0, h - 1, 0)
+        y_end = st.slider("End-Y", y_start + 1, h, h)
+        min_area = st.slider("Minimale Fleckengröße", 10, 500, 30)
+        max_area = st.slider("Maximale Fleckengröße", min_area, 1000, 250)
+        group_diameter = st.slider("Gruppendurchmesser", 20, 500, 60)
 
-# Parameter für Fleckengruppen
-st.sidebar.header("Fleckengruppen-Parameter")
-show_spots = st.sidebar.checkbox("Flecken anzeigen", value=True)
-marker_color = st.sidebar.color_picker("Fleckfarbe", "#FF0000")
-marker_size = st.sidebar.slider("Markierungsgröße", 1, 20, 6)
-show_groups = st.sidebar.checkbox("Gruppen anzeigen", value=True)
-diameter = st.sidebar.slider("Gruppen-Durchmesser (px)", 20, 500, 100)
+        if "intensity" not in st.session_state:
+            st.session_state.intensity = 25
+        intensity = st.slider("Intensitäts-Schwelle", 0, 255, st.session_state.intensity)
 
-# Parameter für Kreis-Ausschnitt
-st.sidebar.header("Kreis-Ausschnitt-Parameter")
-circle_color = st.sidebar.color_picker("Kreisfarbe", "#00FF00")
-circle_width = st.sidebar.slider("Linienstärke", 1, 10, 3)
-h, w = gray.shape
-center_x = st.sidebar.slider("Mittelpunkt X", 0, w - 1, w // 2)
-center_y = st.sidebar.slider("Mittelpunkt Y", 0, h - 1, h // 2)
-max_rad = min(w, h) // 2
-radius = st.sidebar.slider("Radius (px)", 10, max_rad, min(100, max_rad))
+        if st.button("🔎 Beste Schwelle (Gruppenanzahl) ermitteln"):
+            cropped_array = img_array[y_start:y_end, x_start:x_end]
+            best_intensity, score = finde_beste_schwelle(cropped_array, min_area, max_area, group_diameter)
+            st.session_state.intensity = best_intensity
+            st.success(f"✅ Beste Schwelle: {best_intensity} ({score} Gruppen)")
 
-# Binärmaske anzeigen
-if show_mask:
-    st.subheader("Binärmaske")
-    st.image(mask, caption="Schwarz=Hintergrund, Weiß=Flecken", use_column_width=True)
+    with col2:
+        cropped_array = img_array[y_start:y_end, x_start:x_end]
+        mask = cropped_array < intensity
+        labeled_array, _ = label(mask)
+        objects = find_objects(labeled_array)
 
-# Fleckengruppen-Modus
-if mode == "Fleckengruppen":
-    st.subheader("Fleckengruppen-Analyse")
-    with st.spinner("Analysiere Flecken und bilde Gruppen…"):
-        # Centroids berechnen
-        centroids = []
-        for lbl in range(1, num_labels + 1):
-            y, x = ndi.center_of_mass(mask, labels, lbl)
-            if np.isfinite(x) and np.isfinite(y):
-                centroids.append((x, y))
+        centers = [
+            ((obj[1].start + obj[1].stop) // 2, (obj[0].start + obj[0].stop) // 2)
+            for obj in objects
+            if min_area <= np.sum(labeled_array[obj] > 0) <= max_area
+        ]
 
-        # Clustering mit DBSCAN (eps = diameter)
-        groups = None
-        if len(centroids) > 1:
-            pts = np.array(centroids)
-            clustering = DBSCAN(eps=diameter, min_samples=1).fit(pts)
-            groups = clustering.labels_
+        if st.button("🟦 Einzelne Flecken anzeigen"):
+            draw_img_flecken = img_rgb.copy()
+            draw = ImageDraw.Draw(draw_img_flecken)
+            if centers:
+                for x, y in centers:
+                    draw.ellipse(
+                        [(x + x_start - spot_radius, y + y_start - spot_radius),
+                         (x + x_start + spot_radius, y + y_start + spot_radius)],
+                        fill=spot_color
+                    )
+                st.image(draw_img_flecken, caption="🎯 Einzelne Flecken", use_column_width=True)
+            else:
+                st.warning("⚠️ Keine Flecken erkannt.")
+                st.image(draw_img_flecken, caption="📷 Originalbild", use_column_width=True)
 
-        # Zeichnen auf Kopie
-        canvas = orig.copy()
-        draw = ImageDraw.Draw(canvas)
+        grouped, visited = [], set()
+        for i, (x1, y1) in enumerate(centers):
+            if i in visited:
+                continue
+            gruppe = [(x1, y1)]
+            visited.add(i)
+            for j, (x2, y2) in enumerate(centers):
+                if j in visited:
+                    continue
+                if ((x1 - x2)**2 + (y1 - y2)**2)**0.5 <= group_diameter / 2:
+                    gruppe.append((x2, y2))
+                    visited.add(j)
+            grouped.append(gruppe)
 
-        # Flecken markieren
-        if show_spots:
-            for x, y in centroids:
-                r = marker_size
+        st.success(f"📍 Fleckengruppen erkannt: {len(grouped)}")
+
+        draw_img = img_rgb.copy()
+        draw = ImageDraw.Draw(draw_img)
+        for gruppe in grouped:
+            if gruppe:
+                xs, ys = zip(*gruppe)
+                x_mean = int(np.mean(xs)) + x_start
+                y_mean = int(np.mean(ys)) + y_start
+                r = group_diameter // 2
                 draw.ellipse(
-                    [(x - r, y - r), (x + r, y + r)],
-                    outline=marker_color,
-                    fill=marker_color,
+                    [(x_mean - r, y_mean - r), (x_mean + r, y_mean + r)],
+                    outline=circle_color,
+                    width=circle_width
                 )
+        st.image(draw_img, caption="🖼️ Fleckengruppen-Vorschau", use_column_width=True)
 
-        # Gruppen umschreiben
-        if show_groups and groups is not None:
-            pts = np.array(centroids)
-            for grp in np.unique(groups):
-                pts_grp = pts[groups == grp]
-                cx, cy = pts_grp.mean(axis=0)
-                # Radius der Gruppenkugel
-                r_grp = np.max(np.linalg.norm(pts_grp - [cx, cy], axis=1))
-                draw.ellipse(
-                    [(cx - r_grp, cy - r_grp), (cx + r_grp, cy + r_grp)],
-                    outline=marker_color,
-                    width=marker_size,
-                )
 
-    st.image(canvas, caption="Fleckengruppen mit Markierungen", use_column_width=True)
+
 
 # Kreis-Ausschnitt-Modus
 else:
