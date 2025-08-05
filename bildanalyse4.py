@@ -108,23 +108,24 @@ if modus == "Fleckengruppen":
 
 # ▓▓▓ MODUS 2: Kreis-Ausschnitt mit UX-Verbesserung ▓▓▓
 elif modus == "Kreis-Ausschnitt":
-    st.subheader("🔴 Kreis-Ausschnitt")
+    st.subheader("🎯 Kreis-Ausschnitt")
 
-    col1, col2 = st.columns([1, 2])
+    col1, col2 = st.columns([1, 2])  # Regler links, Bild rechts
 
     with col1:
-        st.markdown("### 🔧 Kreis-Parameter")
+        st.markdown("#### 🔧 Kreis-Parameter")
         cx = st.slider("Mittelpunkt X", 0, w, w // 2)
         cy = st.slider("Mittelpunkt Y", 0, h, h // 2)
-        r  = st.slider("Radius", 0, min(w, h) // 2, min(w, h) // 4)
-        st.markdown("⬆️ Regler bequem einstellen")
+        r = st.slider("Radius", 10, min(w, h) // 2, min(w, h) // 4)
 
     with col2:
-        overlay = Image.new("RGBA", img_rgb.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay)
-        draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], outline=circle_color + "FF", width=circle_width)
-        preview = Image.alpha_composite(img_rgb.convert("RGBA"), overlay)
-        st.image(preview, caption="🔴 Kreis-Vorschau", use_column_width=True)
+        cropped = img_rgb.crop((cx - r, cy - r, cx + r, cy + r))
+        st.image(cropped, caption="🔍 Vorschau Ausschnitt", use_column_width=True)
+
+        buf = BytesIO()
+        cropped.save(buf, format="PNG")
+        st.download_button("🖱️ Download Ausschnitt", buf.getvalue(), file_name="ausschnitt.png", mime="image/png")
+
 
     if st.button("✂️ Kreis ausschneiden"):
         mask = Image.new("L", img_rgb.size, 0)
