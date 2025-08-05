@@ -2,9 +2,9 @@ import streamlit as st
 from PIL import Image, ImageDraw
 import numpy as np
 import scipy.ndimage as ndi
+from scipy.cluster.hierarchy import fclusterdata
 from skimage.filters import threshold_otsu
 import matplotlib.pyplot as plt
-from io import BytesIO
 
 st.set_page_config(page_title="Komfort-Bildanalyse", layout="wide")
 st.title("🧪 Komfort-Bildanalyse-App")
@@ -23,34 +23,37 @@ h, w = gray.shape
 
 # --- Sidebar: Histogramm & Threshold ---
 st.sidebar.header("Histogramm & Schwellenwert")
+# Otsu-Vorschlag
 otsu_val = threshold_otsu(gray)
 thresh = st.sidebar.slider(
     "Intensitäts-Schwellenwert",
     min_value=0,
     max_value=255,
     value=int(otsu_val),
-    help=f"Otsu-Empfehlung: {int(otsu_val)}"
+    help=f"Otsu-Empfehlung: {int(otsu_val)}",
 )
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(4, 2.5))
 ax.hist(gray.ravel(), bins=256, color="gray", alpha=0.7)
-ax.axvline(thresh, color="red", linewidth=2, label=f"Thresh = {thresh}")
+ax.axvline(thresh, color="red", lw=2, label=f"Thresh = {thresh}")
 ax.legend()
 ax.set_xlabel("Intensität")
 ax.set_ylabel("Pixelanzahl")
 st.sidebar.pyplot(fig)
 
-# --- Sidebar: Modus-Auswahl ---
-mode = st.sidebar.radio(
-    "Analyse-Modus wählen",
-    ("Fleckengruppen", "Kreis-Ausschnitt")
-)
+# --- Sidebar: Binärmaske anzeigen ---
+show_mask = st.sidebar.checkbox("Binärmaske anzeigen", value=False)
+
+# --- Sidebar: Analyse-Modus ---
+mode = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
 
 # --- Sidebar: Fleckengruppen-Parameter ---
 st.sidebar.header("Fleckengruppen-Parameter")
-show_groups = st.sidebar.checkbox("Fleckengruppen anzeigen", value=True)
+show_spots = st.sidebar.checkbox("Flecken anzeigen", value=True)
 marker_color = st.sidebar.color_picker("Fleckfarbe", "#FF0000")
-marker_size = st.sidebar.slider("Markierungsgröße", 1, 20, 5)
+marker_size = st.sidebar.slider("Markierungsgröße", 1, 20, 6)
+show_groups = st.sidebar.checkbox("Gruppen anzeigen", value=True)
+diameter = st.sidebar.slider("Gruppen-Durchmesser (px)", 20, 500, 100)
 
 # --- Sidebar: Kreis-Ausschnitt-Parameter ---
 st.sidebar.header("Kreis-Ausschnitt-Parameter")
@@ -58,72 +61,66 @@ circle_color = st.sidebar.color_picker("Kreisfarbe", "#FF0000")
 circle_width = st.sidebar.slider("Linienstärke", 1, 10, 3)
 center_x = st.sidebar.slider("Mittelpunkt X", 0, w - 1, w // 2)
 center_y = st.sidebar.slider("Mittelpunkt Y", 0, h - 1, h // 2)
-max_radius = min(w, h) // 2
-radius = st.sidebar.slider("Radius", 10, max_radius, min(100, max_radius))
+max_rad = min(w, h) // 2
+radius = st.sidebar.slider("Radius (px)", 10, max_rad, min(100, max_rad))
 
-# --- Modus: Fleckengruppen ---
+# --- Bild-Processing ---
+mask = gray > thresh
+labels, num_labels = ndi.label(mask)
+
+# Main-Canvas
+canvas = img.copy()
+draw = ImageDraw.Draw(canvas)
+
+# Show binary mask if requested
+if show_mask:
+    st.subheader("Binärmaske")
+    st.image(mask, caption="Schwarz=Hintergrund, Weiß=Flecken", use_column_width=True)
+
+# Fleckengruppen-Modus
 if mode == "Fleckengruppen":
-    st.subheader("🔍 Fleckengruppen-Analyse")
-    # Binärmaske erstellen
-    mask = gray < thresh
-    # Connected Components
-    labeled, num_features = ndi.label(mask)
-    centers = ndi.center_of_mass(mask, labeled, range(1, num_features + 1))
+    st.subheader("Fleckengruppen-Analyse")
 
-    # Overlay auf Originalbild zeichnen
-    overlay = img.copy()
-    draw = ImageDraw.Draw(overlay)
-    if show_groups:
-        for cy, cx in centers:
-            if np.isnan(cx) or np.isnan(cy):
-                continue
-            x, y = int(cx), int(cy)
+    # 1) Flecken-Positionen (Schwerpunkte)
+    centroids = []
+    for lbl in range(1, num_labels + 1):
+        y, x = ndi.center_of_mass(mask, labels, lbl)
+        if not np.isnan(x) and not np.isnan(y):
+            centroids.append((x, y))
+
+    # 2) Flecken einzeichnen
+    if show_spots:
+        for x, y in centroids:
             r = marker_size
             draw.ellipse(
                 [(x - r, y - r), (x + r, y + r)],
                 outline=marker_color,
-                width=2,
+                fill=marker_color,
             )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.image(
-            overlay,
-            caption="Original + Fleckengruppen",
-            use_column_width=True,
-        )
-        buf = BytesIO()
-        overlay.save(buf, format="PNG")
-        st.download_button(
-            "Download Flecken-Overlay",
-            buf.getvalue(),
-            file_name="flecken_overlay.png",
-            mime="image/png",
-        )
+    # 3) Gruppierung per Abstandsschwelle
+    if show_groups and len(centroids) > 1:
+        pts = np.array(centroids)
+        # Cluster mit Single-Linkage: max. Abstand = diameter
+        clusters = fclusterdata(pts, t=diameter, criterion="distance", metric="euclidean")
+        for c in np.unique(clusters):
+            group_pts = pts[clusters == c]
+            cx, cy = group_pts.mean(axis=0)
+            # Radius = max Abstand zu Gruppenmittelpunkt
+            r = np.max(np.sqrt(((group_pts - [cx, cy]) ** 2).sum(axis=1)))
+            draw.ellipse(
+                [(cx - r, cy - r), (cx + r, cy + r)],
+                outline=marker_color,
+                width=marker_size,
+            )
 
-    with col2:
-        st.image(
-            mask.astype(np.uint8) * 255,
-            caption="Binärmaske",
-            use_column_width=True,
-            clamp=True,
-        )
-        buf2 = BytesIO()
-        Image.fromarray((mask.astype(np.uint8) * 255)).save(buf2, format="PNG")
-        st.download_button(
-            "Download Maske",
-            buf2.getvalue(),
-            file_name="maske.png",
-            mime="image/png",
-        )
+    st.image(canvas, caption="Fleckengruppen mit Markierungen", use_column_width=True)
 
-    st.markdown(f"**Gefundene Fleckengruppen:** {len(centers)}")
+# Kreis-Ausschnitt-Modus
+else:
+    st.subheader("Kreis-Ausschnitt")
 
-# --- Modus: Kreis-Ausschnitt ---
-elif mode == "Kreis-Ausschnitt":
-    st.subheader("🎯 Kreis-Ausschnitt")
-    preview = img.copy()
-    draw = ImageDraw.Draw(preview)
+    # Kreis um das Originalbild zeichnen
     draw.ellipse(
         [
             (center_x - radius, center_y - radius),
@@ -132,34 +129,22 @@ elif mode == "Kreis-Ausschnitt":
         outline=circle_color,
         width=circle_width,
     )
-    st.image(preview, caption="Kreis-Vorschau", use_column_width=True)
+    st.image(canvas, caption="Auswahlkreis im Bild", use_column_width=True)
 
-    only_crop = st.checkbox("Nur Ausschnitt anzeigen")
-    if only_crop:
-        # Maske und Ausschnitt erzeugen
-        mask_circle = Image.new("L", (w, h), 0)
-        md = ImageDraw.Draw(mask_circle)
-        md.ellipse(
-            [
-                (center_x - radius, center_y - radius),
-                (center_x + radius, center_y + radius),
-            ],
-            fill=255,
-        )
-        cropped = Image.composite(
-            img, Image.new("RGB", (w, h), (255, 255, 255)), mask_circle
-        ).crop(
-            (center_x - radius, center_y - radius, center_x + radius, center_y + radius)
-        )
-    else:
-        cropped = preview
-
-    st.image(cropped, caption="Ergebnis", use_column_width=True)
-    buf_crop = BytesIO()
-    cropped.save(buf_crop, format="PNG")
-    st.download_button(
-        "Download Kreis-Ausschnitt",
-        buf_crop.getvalue(),
-        file_name="kreis_ausschnitt.png",
-        mime="image/png",
+    # Kreisförmigen Ausschnitt maskieren und anzeigen
+    mask_circle = Image.new("L", (w, h), 0)
+    dc = ImageDraw.Draw(mask_circle)
+    dc.ellipse(
+        [
+            (center_x - radius, center_y - radius),
+            (center_x + radius, center_y + radius),
+        ],
+        fill=255,
     )
+    segmented = Image.new("RGB", (w, h))
+    segmented.paste(img, mask=mask_circle)
+    cropped = segmented.crop(
+        (center_x - radius, center_y - radius, center_x + radius, center_y + radius)
+    )
+    st.subheader("Kreisförmiger Bildausschnitt")
+    st.image(cropped, use_column_width=True)
