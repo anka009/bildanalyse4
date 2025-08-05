@@ -150,42 +150,55 @@ if modus == "Fleckengruppen":
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Kreis-Ausschnitt-Modus
 else:
     st.subheader("🔲 Kreis-Ausschnitt")
 
-    # Slider für Kreis-Parameter
-    center_x = st.slider("Mittelpunkt X", 0, w, w // 2)
-    center_y = st.slider("Mittelpunkt Y", 0, h, h // 2)
-    radius   = st.slider("Radius",        1, min(w, h) // 2, min(w, h) // 4)
+    # Zwei Spalten: links Regler, rechts Bildvorschau
+    col1, col2 = st.columns([1, 2])
 
-    # Kreis auf dem Bild visualisieren
-    canvas = img_rgb.copy()
-    draw = ImageDraw.Draw(canvas)
-    draw.ellipse(
-        [
-            (center_x - radius, center_y - radius),
-            (center_x + radius, center_y + radius)
-        ],
-        outline=circle_color,
-        width=circle_width
-    )
-    st.image(canvas, caption="Auswahlkreis im Bild", use_column_width=True)
+    # Links: Slider und Download-Button
+    with col1:
+        center_x = st.slider("Mittelpunkt X", 0, w, w // 2)
+        center_y = st.slider("Mittelpunkt Y", 0, h, h // 2)
+        radius   = st.slider("Radius", 1, min(w, h) // 2, min(w, h) // 4)
+        st.markdown("---")
+        if st.button("Ausschnitt speichern"):
+            buf = BytesIO()
+            cropped.save(buf, format="PNG")
+            st.download_button(
+                label="Download PNG",
+                data=buf.getvalue(),
+                file_name="kreis_ausschnitt.png",
+                mime="image/png"
+            )
 
-    # Kreisförmigen Ausschnitt maskieren & anzeigen
-    mask_circle = Image.new("L", img_rgb.size, 0)
-    dc = ImageDraw.Draw(mask_circle)
-    dc.ellipse(
-        [
-            (center_x - radius, center_y - radius),
-            (center_x + radius, center_y + radius)
-        ],
-        fill=255
-    )
-    segmented = Image.new("RGB", img_rgb.size)
-    segmented.paste(img_rgb, mask=mask_circle)
-    cropped = segmented.crop(
-        (center_x - radius, center_y - radius,
-         center_x + radius, center_y + radius)
-    )
-    st.subheader("🔍 Kreisförmiger Bildausschnitt")
-    st.image(cropped, use_column_width=True)
+    # Rechts: Kreisvisualisierung und Ausschnitt
+    with col2:
+        # Kreis auf dem Bild darstellen
+        canvas = img_rgb.copy()
+        draw   = ImageDraw.Draw(canvas)
+        draw.ellipse(
+            [(center_x - radius, center_y - radius),
+             (center_x + radius, center_y + radius)],
+            outline=circle_color,
+            width=circle_width
+        )
+        st.image(canvas, caption="Auswahlkreis im Bild", use_column_width=True)
+
+        # Kreisförmigen Ausschnitt erzeugen und anzeigen
+        mask_circle = Image.new("L", img_rgb.size, 0)
+        dc = ImageDraw.Draw(mask_circle)
+        dc.ellipse(
+            [(center_x - radius, center_y - radius),
+             (center_x + radius, center_y + radius)],
+            fill=255
+        )
+        segmented = Image.new("RGB", img_rgb.size)
+        segmented.paste(img_rgb, mask=mask_circle)
+        cropped = segmented.crop(
+            (center_x - radius, center_y - radius,
+             center_x + radius, center_y + radius)
+        )
+        st.subheader("🔍 Kreisförmiger Bildausschnitt")
+        st.image(cropped, use_column_width=True)
