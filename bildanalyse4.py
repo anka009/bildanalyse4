@@ -21,6 +21,14 @@ img_array = np.array(img_gray)
 w, h = img_rgb.size
 
 # Hilfsfunktionen
+# Parameter für Fleckenerkennung
+min_area = 50
+max_area = 1000
+intensity = 100  # oder ein sinnvoller Wert basierend auf deinem Bild
+
+# Flecken finden
+objects = finde_flecken(img_array, min_area, max_area, intensity)
+
 def finde_flecken(cropped_array, min_area, max_area, intensity):
     mask = cropped_array < intensity
     labeled_array, _ = label(mask)
