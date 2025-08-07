@@ -58,58 +58,46 @@ def finde_flecken(cropped_array, min_area, max_area, intensity):
  
 
 # Fleckengruppen-Modus
-def gruppiere_flecken_bbox(objects, padding=5):
-    gruppen = []
-    visited = set()
+def fleckengruppen_modus():
+    st.subheader("🧫 Fleckengruppen erkennen")
 
-    for i, box1 in enumerate(objects):
-        if i in visited:
-            continue
-        gruppe = [i]
-        visited.add(i)
-        for j, box2 in enumerate(objects):
-            if j in visited or i == j:
-                continue
-            if not (
-                box1[1].stop + padding < box2[1].start or
-                box2[1].stop + padding < box1[1].start or
-                box1[0].stop + padding < box2[0].start or
-                box2[0].stop + padding < box1[0].start
-            ):
-                gruppe.append(j)
-                visited.add(j)
-        gruppen.append(gruppe)
-    return gruppen
-# 1. Flecken extrahieren
-flecken = []
-valid_boxes = []
-for obj in objects:
-    region = labeled_array[obj] > 0
-    coords = np.argwhere(region)
-    coords[:, 0] += obj[0].start
-    coords[:, 1] += obj[1].start
-    area = len(coords)
-    if min_area <= area <= max_area:
-        flecken.append(coords)
-        valid_boxes.append(obj)
+    # 1. Maske und Label erzeugen
+    mask = np.array(img_gray) < intensity
+    labeled_array, _ = label(mask)
+    objects = find_objects(labeled_array)
 
-# 2. Schnelle Gruppierung
-gruppen_ids = gruppiere_flecken_bbox(valid_boxes)
+    # 2. Flecken extrahieren
+    flecken = []
+    valid_boxes = []
+    for obj in objects:
+        region = labeled_array[obj] > 0
+        coords = np.argwhere(region)
+        coords[:, 0] += obj[0].start
+        coords[:, 1] += obj[1].start
+        area = len(coords)
+        if min_area <= area <= max_area:
+            flecken.append(coords)
+            valid_boxes.append(obj)
 
-# 3. Visualisierung
-draw_img = img_rgb.copy()
-draw = ImageDraw.Draw(draw_img)
-fleck_count = 0
-for gruppe in gruppen_ids:
-    gruppe_coords = np.concatenate([flecken[i] for i in gruppe])
-    y_mean, x_mean = np.mean(gruppe_coords, axis=0).astype(int)
-    radius = int(np.sqrt(len(gruppe_coords) / np.pi))
-    draw.ellipse(
-        [(x_mean + x_start - radius, y_mean + y_start - radius),
-         (x_mean + x_start + radius, y_mean + y_start + radius)],
-        outline=circle_color, width=circle_width
-    )
-    fleck_count += 1
+    # 3. Gruppierung
+    gruppen_ids = gruppiere_flecken_bbox(valid_boxes)
+
+    # 4. Visualisierung
+    draw_img = img_rgb.copy()
+    draw = ImageDraw.Draw(draw_img)
+    fleck_count = 0
+    for gruppe in gruppen_ids:
+        gruppe_coords = np.concatenate([flecken[i] for i in gruppe])
+        y_mean, x_mean = np.mean(gruppe_coords, axis=0).astype(int)
+        radius = int(np.sqrt(len(gruppe_coords) / np.pi))
+        draw.ellipse(
+            [(x_mean - radius, y_mean - radius), (x_mean + radius, y_mean + radius)],
+            outline=circle_color,
+            width=circle_width
+        )
+        fleck_count += 1
+
+    st.image(draw_img, caption=f"🖼️ {fleck_count} Fleckengruppen erkannt", use_container_width=True)
 
 # Kreis-Ausschnitt-Modus
 def kreis_modus():
