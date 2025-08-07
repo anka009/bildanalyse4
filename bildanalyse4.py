@@ -16,7 +16,7 @@ max_area = st.sidebar.slider("📐 Maximale Fleckengröße", 100, 100000, 1000)
 intensity = st.sidebar.slider("🌑 Intensitätsschwelle", 0, 255, 100)
 modus = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
 circle_color = st.sidebar.color_picker("🎨 Farbe für Fleckengruppen", "#FF0000")
-spot_color = st.sidebar.color_picker("🟦 Farbe für einzelne Flecken", "#00FFFF")
+
 circle_width = st.sidebar.slider("✒️ Liniendicke (Gruppen)", 1, 10, 6)
 
 
