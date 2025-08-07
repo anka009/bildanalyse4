@@ -11,7 +11,7 @@ st.title("🧪 Bildanalyse Komfort-App")
 
 # Sidebar-Einstellungen
 uploaded_file = st.sidebar.file_uploader("📁 Bild auswählen", type=["png", "jpg", "jpeg", "tif", "tiff"])
-min_area = st.sidebar.slider("📏 Minimale Fleckengröße", 10, 5000, 50)
+min_area = st.sidebar.slider("📏 Minimale Fleckengröße", 10, 1000, 50)
 max_area = st.sidebar.slider("📐 Maximale Fleckengröße", 100, 50000, 1000)
 intensity = st.sidebar.slider("🌑 Intensitätsschwelle", 0, 255, 100)
 modus = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
