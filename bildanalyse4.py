@@ -6,7 +6,7 @@ import pandas as pd
 from io import BytesIO
 
 # Seiteneinstellungen
-st.set_page_config(page_title="Bildanalyse Komfort-App", layout="wide")
+st.set_page_config(page_title="Bildanalyse", layout="wide")
 st.title("🧪 Bildanalyse Komfort-App")
 
 # Bild-Upload
