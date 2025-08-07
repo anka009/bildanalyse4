@@ -18,7 +18,7 @@ modus = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Auss
 circle_color = st.sidebar.color_picker("🎨 Farbe für Fleckengruppen", "#FF0000")
 spot_color = st.sidebar.color_picker("🟦 Farbe für einzelne Flecken", "#00FFFF")
 circle_width = st.sidebar.slider("✒️ Liniendicke (Gruppen)", 1, 10, 6)
-spot_radius = st.sidebar.slider("🔘 Flecken-Radius", 1, 200, 10)
+
 
 # Bild laden
 if not uploaded_file:
