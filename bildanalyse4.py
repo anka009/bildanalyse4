@@ -63,8 +63,8 @@ def fleckengruppen_modus():
         x_end = st.slider("End-X", x_start + 1, w, w)
         y_start = st.slider("Start-Y", 0, h - 1, 0)
         y_end = st.slider("End-Y", y_start + 1, h, h)
-        min_area = st.slider("Minimale Fleckengröße", 10, 500, 30)
-        max_area = st.slider("Maximale Fleckengröße", min_area, 1000, 250)
+        min_area = st.slider("Minimale Fleckengröße", 10, 1000, 30)
+        max_area = st.slider("Maximale Fleckengröße", min_area, 10000, 1000)
         group_diameter = st.slider("Gruppendurchmesser", 20, 500, 60)
         intensity = st.slider("Intensitäts-Schwelle", 0, 255, value=25)
     with col2:
@@ -73,18 +73,12 @@ def fleckengruppen_modus():
         grouped = gruppiere_flecken(centers, group_diameter)
         draw_img = img_rgb.copy()
         draw = ImageDraw.Draw(draw_img)
-        for obj in find_objects(label(cropped_array < intensity)[0]):
-            area = np.sum(label(cropped_array < intensity)[0][obj] > 0)
-            if min_area <= area <= max_area:
-                x = (obj[1].start + obj[1].stop) // 2
-                y = (obj[0].start + obj[0].stop) // 2
-                radius = int(np.sqrt(area / np.pi))
-                draw.ellipse(
-                    [(x + x_start - radius, y + y_start - radius),
-                     (x + x_start + radius, y + y_start + radius)],
-                    fill=spot_color
-                )
-
+        for x, y in centers:
+            draw.ellipse(
+                [(x + x_start - spot_radius, y + y_start - spot_radius),
+                 (x + x_start + spot_radius, y + y_start + spot_radius)],
+                fill=spot_color
+            )
         for gruppe in grouped:
             if gruppe:
                 xs, ys = zip(*gruppe)
