@@ -65,7 +65,7 @@ def fleckengruppen_modus():
         y_end = st.slider("End-Y", y_start + 1, h, h)
         min_area = st.slider("Minimale Fleckengröße", 10, 1000, 30)
         max_area = st.slider("Maximale Fleckengröße", min_area, 10000, 1000)
-        group_diameter = st.slider("Gruppendurchmesser", 20, 500, 60)
+        group_diameter = st.slider("Gruppendurchmesser", 20, 1000, 150)
         intensity = st.slider("Intensitäts-Schwelle", 0, 255, value=25)
     with col2:
         cropped_array = img_array[y_start:y_end, x_start:x_end]
