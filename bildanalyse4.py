@@ -58,7 +58,7 @@ def finde_flecken(cropped_array, min_area, max_area, intensity):
  
 
 # Sidebar-Einstellungen
-modus = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
+
 circle_color = st.sidebar.color_picker("🎨 Farbe für Fleckengruppen", "#FF0000")
 spot_color = st.sidebar.color_picker("🟦 Farbe für einzelne Flecken", "#00FFFF")
 circle_width = st.sidebar.slider("✒️ Liniendicke (Gruppen)", 1, 10, 6)
