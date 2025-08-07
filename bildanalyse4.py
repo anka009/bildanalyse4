@@ -41,70 +41,58 @@ circle_width = st.sidebar.slider("✒️ Liniendicke (Gruppen)", 1, 10, 6)
 spot_radius = st.sidebar.slider("🔘 Flecken-Radius", 1, 20, 10)
 
 # Fleckengruppen-Modus
-def fleckengruppen_modus():
-    st.subheader("🧠 Fettflecken erkennen")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        x_start = st.slider("Start-X", 0, w - 1, 0)
-        x_end = st.slider("End-X", x_start + 1, w, w)
-        y_start = st.slider("Start-Y", 0, h - 1, 0)
-        y_end = st.slider("End-Y", y_start + 1, h, h)
-        min_area = st.slider("Minimale Fleckengröße", 10, 1000, 30)
-        max_area = st.slider("Maximale Fleckengröße", min_area, 10000, 1000)
-        intensity = st.slider("Intensitäts-Schwelle", 0, 255, value=25)
-    with col2:
-        cropped_array = img_array[y_start:y_end, x_start:x_end]
-        mask = cropped_array < intensity
-        labeled_array, _ = label(mask)
-        objects = find_objects(labeled_array)
+def gruppiere_flecken_bbox(objects, padding=5):
+    gruppen = []
+    visited = set()
 
-        # Flecken sammeln
-        flecken = []
-        for obj in objects:
-            region = labeled_array[obj] > 0
-            coords = np.argwhere(region)
-            coords[:, 0] += obj[0].start
-            coords[:, 1] += obj[1].start
-            area = len(coords)
-            if min_area <= area <= max_area:
-                flecken.append(coords)
-
-        # Überlappung prüfen und gruppieren
-        gruppen = []
-        visited = set()
-        for i, f1 in enumerate(flecken):
-            if i in visited:
+    for i, box1 in enumerate(objects):
+        if i in visited:
+            continue
+        gruppe = [i]
+        visited.add(i)
+        for j, box2 in enumerate(objects):
+            if j in visited or i == j:
                 continue
-            gruppe = list(f1)
-            visited.add(i)
-            for j, f2 in enumerate(flecken):
-                if j in visited:
-                    continue
-                if np.any([np.linalg.norm(p1 - p2) < 5 for p1 in f1 for p2 in f2]):
-                    gruppe.extend(f2)
-                    visited.add(j)
-            gruppen.append(np.array(gruppe))
+            if not (
+                box1[1].stop + padding < box2[1].start or
+                box2[1].stop + padding < box1[1].start or
+                box1[0].stop + padding < box2[0].start or
+                box2[0].stop + padding < box1[0].start
+            ):
+                gruppe.append(j)
+                visited.add(j)
+        gruppen.append(gruppe)
+    return gruppen
+# 1. Flecken extrahieren
+flecken = []
+valid_boxes = []
+for obj in objects:
+    region = labeled_array[obj] > 0
+    coords = np.argwhere(region)
+    coords[:, 0] += obj[0].start
+    coords[:, 1] += obj[1].start
+    area = len(coords)
+    if min_area <= area <= max_area:
+        flecken.append(coords)
+        valid_boxes.append(obj)
 
-        # Visualisierung
-        draw_img = img_rgb.copy()
-        draw = ImageDraw.Draw(draw_img)
-        fleck_count = 0
-        for gruppe in gruppen:
-            area = len(gruppe)
-            if min_area <= area <= max_area:
-                y_mean, x_mean = np.mean(gruppe, axis=0).astype(int)
-                radius = int(np.sqrt(area / np.pi))
-                draw.ellipse(
-                    [(x_mean + x_start - radius, y_mean + y_start - radius),
-                     (x_mean + x_start + radius, y_mean + y_start + radius)],
-                    outline=circle_color, width=circle_width
-                )
-                fleck_count += 1
+# 2. Schnelle Gruppierung
+gruppen_ids = gruppiere_flecken_bbox(valid_boxes)
 
-        st.image(draw_img, caption="🧴 Fettflecken-Erkennung", use_container_width=True)
-        st.markdown("---")
-        st.markdown("### 🧮 Ergebnisse")
-        st.metric("Erkannte Fettflecken", fleck_count)
+# 3. Visualisierung
+draw_img = img_rgb.copy()
+draw = ImageDraw.Draw(draw_img)
+fleck_count = 0
+for gruppe in gruppen_ids:
+    gruppe_coords = np.concatenate([flecken[i] for i in gruppe])
+    y_mean, x_mean = np.mean(gruppe_coords, axis=0).astype(int)
+    radius = int(np.sqrt(len(gruppe_coords) / np.pi))
+    draw.ellipse(
+        [(x_mean + x_start - radius, y_mean + y_start - radius),
+         (x_mean + x_start + radius, y_mean + y_start + radius)],
+        outline=circle_color, width=circle_width
+    )
+    fleck_count += 1
 
 # Kreis-Ausschnitt-Modus
 def kreis_modus():
