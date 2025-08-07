@@ -57,13 +57,6 @@ def finde_flecken(cropped_array, min_area, max_area, intensity):
 
  
 
-# Sidebar-Einstellungen
-
-circle_color = st.sidebar.color_picker("🎨 Farbe für Fleckengruppen", "#FF0000")
-spot_color = st.sidebar.color_picker("🟦 Farbe für einzelne Flecken", "#00FFFF")
-circle_width = st.sidebar.slider("✒️ Liniendicke (Gruppen)", 1, 10, 6)
-spot_radius = st.sidebar.slider("🔘 Flecken-Radius", 1, 20, 10)
-
 # Fleckengruppen-Modus
 def gruppiere_flecken_bbox(objects, padding=5):
     gruppen = []
