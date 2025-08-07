@@ -55,6 +55,30 @@ def finde_flecken(cropped_array, min_area, max_area, intensity):
         if min_area <= np.sum(labeled_array[obj] > 0) <= max_area
     ]
 
+def gruppiere_flecken_bbox(boxes, padding=5):
+    gruppen = []
+    verwendet = set()
+
+    for i, box1 in enumerate(boxes):
+        if i in verwendet:
+            continue
+        gruppe = [i]
+        verwendet.add(i)
+        y1a, y1b = box1[0].start - padding, box1[0].stop + padding
+        x1a, x1b = box1[1].start - padding, box1[1].stop + padding
+
+        for j, box2 in enumerate(boxes):
+            if j in verwendet or i == j:
+                continue
+            y2a, y2b = box2[0].start, box2[0].stop
+            x2a, x2b = box2[1].start, box2[1].stop
+
+            if x1a < x2b and x1b > x2a and y1a < y2b and y1b > y2a:
+                gruppe.append(j)
+                verwendet.add(j)
+
+        gruppen.append(gruppe)
+    return gruppen
  
 
 # Fleckengruppen-Modus
