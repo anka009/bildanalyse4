@@ -9,8 +9,18 @@ from io import BytesIO
 st.set_page_config(page_title="Bildanalyse", layout="wide")
 st.title("🧪 Bildanalyse Komfort-App")
 
-# Bild-Upload
+# Sidebar-Einstellungen
 uploaded_file = st.sidebar.file_uploader("📁 Bild auswählen", type=["png", "jpg", "jpeg", "tif", "tiff"])
+min_area = st.sidebar.slider("📏 Minimale Fleckengröße", 10, 1000, 50)
+max_area = st.sidebar.slider("📐 Maximale Fleckengröße", 100, 5000, 1000)
+intensity = st.sidebar.slider("🌑 Intensitätsschwelle", 0, 255, 100)
+modus = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
+circle_color = st.sidebar.color_picker("🎨 Farbe für Fleckengruppen", "#FF0000")
+spot_color = st.sidebar.color_picker("🟦 Farbe für einzelne Flecken", "#00FFFF")
+circle_width = st.sidebar.slider("✒️ Liniendicke (Gruppen)", 1, 10, 6)
+spot_radius = st.sidebar.slider("🔘 Flecken-Radius", 1, 20, 10)
+
+# Bild laden
 if not uploaded_file:
     st.warning("Bitte zuerst ein Bild hochladen.")
     st.stop()
@@ -20,14 +30,20 @@ img_gray = img_rgb.convert("L")
 img_array = np.array(img_gray)
 w, h = img_rgb.size
 
-# Hilfsfunktionen
-# Parameter für Fleckenerkennung
-min_area = 50
-max_area = 1000
-intensity = 100  # oder ein sinnvoller Wert basierend auf deinem Bild
+# Hilfsfunktion: Flecken finden
+def finde_flecken(cropped_array, min_area, max_area, intensity):
+    mask = cropped_array < intensity
+    labeled_array, _ = label(mask)
+    objects = find_objects(labeled_array)
+    return [
+        ((obj[1].start + obj[1].stop) // 2, (obj[0].start + obj[0].stop) // 2)
+        for obj in objects
+        if min_area <= np.sum(labeled_array[obj] > 0) <= max_area
+    ]
 
-# Flecken finden
+# Flecken extrahieren
 objects = finde_flecken(img_array, min_area, max_area, intensity)
+
 
 def finde_flecken(cropped_array, min_area, max_area, intensity):
     mask = cropped_array < intensity
