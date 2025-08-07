@@ -31,21 +31,7 @@ def finde_flecken(cropped_array, min_area, max_area, intensity):
         if min_area <= np.sum(labeled_array[obj] > 0) <= max_area
     ]
 
-def gruppiere_flecken(centers, group_diameter):
-    grouped, visited = [], set()
-    for i, (x1, y1) in enumerate(centers):
-        if i in visited:
-            continue
-        gruppe = [(x1, y1)]
-        visited.add(i)
-        for j, (x2, y2) in enumerate(centers):
-            if j in visited:
-                continue
-            if ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5 <= group_diameter / 2:
-                gruppe.append((x2, y2))
-                visited.add(j)
-        grouped.append(gruppe)
-    return grouped
+ 
 
 # Sidebar-Einstellungen
 modus = st.sidebar.radio("Analyse-Modus wählen", ["Fleckengruppen", "Kreis-Ausschnitt"])
@@ -56,7 +42,7 @@ spot_radius = st.sidebar.slider("🔘 Flecken-Radius", 1, 20, 10)
 
 # Fleckengruppen-Modus
 def fleckengruppen_modus():
-    st.subheader("🧠 Fleckengruppen erkennen")
+    st.subheader("🧠 Fettflecken erkennen")
     col1, col2 = st.columns([1, 2])
     with col1:
         x_start = st.slider("Start-X", 0, w - 1, 0)
@@ -65,37 +51,60 @@ def fleckengruppen_modus():
         y_end = st.slider("End-Y", y_start + 1, h, h)
         min_area = st.slider("Minimale Fleckengröße", 10, 1000, 30)
         max_area = st.slider("Maximale Fleckengröße", min_area, 10000, 1000)
-        group_diameter = st.slider("Gruppendurchmesser", 20, 1000, 150)
         intensity = st.slider("Intensitäts-Schwelle", 0, 255, value=25)
     with col2:
         cropped_array = img_array[y_start:y_end, x_start:x_end]
-        centers = finde_flecken(cropped_array, min_area, max_area, intensity)
-        grouped = gruppiere_flecken(centers, group_diameter)
+        mask = cropped_array < intensity
+        labeled_array, _ = label(mask)
+        objects = find_objects(labeled_array)
+
+        # Flecken sammeln
+        flecken = []
+        for obj in objects:
+            region = labeled_array[obj] > 0
+            coords = np.argwhere(region)
+            coords[:, 0] += obj[0].start
+            coords[:, 1] += obj[1].start
+            area = len(coords)
+            if min_area <= area <= max_area:
+                flecken.append(coords)
+
+        # Überlappung prüfen und gruppieren
+        gruppen = []
+        visited = set()
+        for i, f1 in enumerate(flecken):
+            if i in visited:
+                continue
+            gruppe = list(f1)
+            visited.add(i)
+            for j, f2 in enumerate(flecken):
+                if j in visited:
+                    continue
+                if np.any([np.linalg.norm(p1 - p2) < 5 for p1 in f1 for p2 in f2]):
+                    gruppe.extend(f2)
+                    visited.add(j)
+            gruppen.append(np.array(gruppe))
+
+        # Visualisierung
         draw_img = img_rgb.copy()
         draw = ImageDraw.Draw(draw_img)
-        for x, y in centers:
-            draw.ellipse(
-                [(x + x_start - spot_radius, y + y_start - spot_radius),
-                 (x + x_start + spot_radius, y + y_start + spot_radius)],
-                fill=spot_color
-            )
-        for gruppe in grouped:
-            if gruppe:
-                xs, ys = zip(*gruppe)
-                x_mean = int(np.mean(xs))
-                y_mean = int(np.mean(ys))
-                radius = group_diameter / 2
+        fleck_count = 0
+        for gruppe in gruppen:
+            area = len(gruppe)
+            if min_area <= area <= max_area:
+                y_mean, x_mean = np.mean(gruppe, axis=0).astype(int)
+                radius = int(np.sqrt(area / np.pi))
                 draw.ellipse(
                     [(x_mean + x_start - radius, y_mean + y_start - radius),
                      (x_mean + x_start + radius, y_mean + y_start + radius)],
                     outline=circle_color, width=circle_width
                 )
-        st.image(draw_img, caption="🎯 Ergebnisbild mit Markierungen", use_container_width=True)
+                fleck_count += 1
+
+        st.image(draw_img, caption="🧴 Fettflecken-Erkennung", use_container_width=True)
         st.markdown("---")
         st.markdown("### 🧮 Ergebnisse")
-        col_fleck, col_gruppe = st.columns(2)
-        col_fleck.metric("Erkannte Flecken", len(centers))
-        col_gruppe.metric("Erkannte Gruppen", len(grouped))
+        st.metric("Erkannte Fettflecken", fleck_count)
 
 # Kreis-Ausschnitt-Modus
 def kreis_modus():
