@@ -74,16 +74,16 @@ def fleckengruppen_modus():
         draw_img = img_rgb.copy()
         draw = ImageDraw.Draw(draw_img)
         for obj in find_objects(label(cropped_array < intensity)[0]):
-    area = np.sum(label(cropped_array < intensity)[0][obj] > 0)
-    if min_area <= area <= max_area:
-        x = (obj[1].start + obj[1].stop) // 2
-        y = (obj[0].start + obj[0].stop) // 2
-        radius = int(np.sqrt(area / np.pi))
-        draw.ellipse(
-            [(x + x_start - radius, y + y_start - radius),
-             (x + x_start + radius, y + y_start + radius)],
-            fill=spot_color
-        )
+            area = np.sum(label(cropped_array < intensity)[0][obj] > 0)
+            if min_area <= area <= max_area:
+                x = (obj[1].start + obj[1].stop) // 2
+                y = (obj[0].start + obj[0].stop) // 2
+                radius = int(np.sqrt(area / np.pi))
+                draw.ellipse(
+                    [(x + x_start - radius, y + y_start - radius),
+                     (x + x_start + radius, y + y_start + radius)],
+                    fill=spot_color
+                )
 
         for gruppe in grouped:
             if gruppe:
