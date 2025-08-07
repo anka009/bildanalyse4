@@ -130,7 +130,7 @@ def kreis_modus():
     with col1:
         center_x = st.slider("🞄 Mittelpunkt-X", 0, w - 1, w // 2)
         center_y = st.slider("🞄 Mittelpunkt-Y", 0, h - 1, h // 2)
-        radius = st.slider("🔵 Radius", 10, min(w, h) // 2, 500)
+        radius = st.slider("🔵 Radius", 10, min(w, h) // 2, 1000)
     with col2:
         draw_img = img_rgb.copy()
         draw = ImageDraw.Draw(draw_img)
