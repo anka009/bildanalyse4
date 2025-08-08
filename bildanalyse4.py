@@ -65,6 +65,16 @@ if uploaded_file:
     centers = [p for p in centers if p not in st.session_state.deleted_points]
 
     # --- Bild markieren ---
+    # 🛠 Benutzeroptionen für die Markierung
+    st.sidebar.header("🔧 Markierungseinstellungen")
+    radius = st.sidebar.slider("Kreisradius", 2, 20, 8)
+    line_thickness = st.sidebar.slider("Liniendicke", 1, 10, 2)
+    color = st.sidebar.color_picker("Farbe der Markierung", "#ff0000")  # Standard: Rot
+
+    # 🎨 Farbe konvertieren von Hex zu BGR
+    hex_color = color.lstrip("#")
+    bgr_color = tuple(int(hex_color[i:i+2], 16) for i in (4, 2, 0))  # RGB → BGR
+
     marked = image.copy()
     for (x, y) in centers:
         cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
