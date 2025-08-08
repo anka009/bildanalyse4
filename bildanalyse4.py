@@ -1,47 +1,92 @@
 import streamlit as st
 import cv2
 import numpy as np
+import pandas as pd
 from PIL import Image
+import io
 
-st.title("Zellkern-Zähler")
+st.set_page_config(page_title="Interaktiver Zellkern-Zähler", layout="wide")
+st.title("🧬 Interaktiver Zellkern-Zähler")
 
-# Bild-Upload
-uploaded_file = st.file_uploader("Bild hochladen", type=["jpg", "png", "tif"])
+# --- Session-State für manuelle Punkte ---
+if "manual_points" not in st.session_state:
+    st.session_state.manual_points = []
+if "deleted_points" not in st.session_state:
+    st.session_state.deleted_points = []
+
+# --- Datei-Upload ---
+uploaded_file = st.file_uploader("🔍 Bild hochladen", type=["jpg", "png", "tif"])
+
 if uploaded_file:
-    # Bild laden
     image = np.array(Image.open(uploaded_file).convert("RGB"))
 
-    # Graustufen
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    # --- Sidebar-Parameter ---
+    st.sidebar.header("⚙️ Parameter")
+    clip_limit = st.sidebar.slider("CLAHE Kontrastverstärkung", 1.0, 5.0, 2.0, 0.1)
+    threshold_val = st.sidebar.slider("Threshold (Otsu-Offset)", -50, 50, 0, 1)
+    min_size = st.sidebar.slider("Mindestfläche (Pixel)", 10, 500, 50, 10)
 
-    # Optional: Kontrastverbesserung (CLAHE)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    # --- CLAHE für besseren Kontrast ---
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
 
-    # Schwellenwert (automatisch mit Otsu)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # --- Threshold mit Otsu ---
+    otsu_thresh, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, thresh = cv2.threshold(gray, otsu_thresh + threshold_val, 255, cv2.THRESH_BINARY)
 
-    # Invertieren (falls Kerne dunkel sind)
-    thresh = cv2.bitwise_not(thresh)
+    # --- Invertieren falls Kerne dunkel ---
+    if np.mean(gray[thresh == 255]) > np.mean(gray[thresh == 0]):
+        thresh = cv2.bitwise_not(thresh)
 
-    # Kleine Pixel entfernen
-    kernel = np.ones((3,3), np.uint8)
+    # --- Morphologische Filter ---
+    kernel = np.ones((3, 3), np.uint8)
     clean = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
 
-    # Zellkerne trennen (Distanz-Transform + Watershed)
-    dist_transform = cv2.distanceTransform(clean, cv2.DIST_L2, 5)
-    _, sure_fg = cv2.threshold(dist_transform, 0.5*dist_transform.max(), 255, 0)
-    sure_fg = np.uint8(sure_fg)
+    # --- Konturen finden ---
+    contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Konturen finden
-    contours, _ = cv2.findContours(sure_fg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    count = len(contours)
+    # --- Filtern nach Größe ---
+    contours = [c for c in contours if cv2.contourArea(c) >= min_size]
 
-    # Zellkerne markieren
-    marked = image.copy()
+    # --- Mittelpunktberechnung ---
+    centers = []
     for c in contours:
-        (x, y), radius = cv2.minEnclosingCircle(c)
-        cv2.circle(marked, (int(x), int(y)), int(radius), (255, 0, 0), 2)
+        M = cv2.moments(c)
+        if M["m00"] != 0:
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+            centers.append((cx, cy))
 
-    st.image(marked, caption=f"Gefundene Zellkerne: {count}", use_column_width=True)
-    st.success(f"Anzahl Zellkerne: {count}")
+    # --- Manuelle Punkte hinzufügen ---
+    centers += st.session_state.manual_points
+
+    # --- Gelöschte Punkte rausfiltern ---
+    centers = [p for p in centers if p not in st.session_state.deleted_points]
+
+    # --- Bild markieren ---
+    marked = image.copy()
+    for (x, y) in centers:
+        cv2.circle(marked, (x, y), 8, (255, 0, 0), 2)
+
+    st.image(marked, caption=f"Gefundene Zellkerne: {len(centers)}", use_column_width=True)
+
+    # --- CSV Export ---
+    df = pd.DataFrame(centers, columns=["X", "Y"])
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button("📥 CSV exportieren", data=csv, file_name="zellkerne.csv", mime="text/csv")
+
+    # --- Interaktive Klick-Events ---
+    st.subheader("✏️ Manuelle Korrektur")
+    st.write("🔹 **Linksklick**: Kern hinzufügen\n🔹 **Rechtsklick**: Kern löschen")
+
+    click_x = st.number_input("X-Koordinate", min_value=0, max_value=image.shape[1]-1, step=1)
+    click_y = st.number_input("Y-Koordinate", min_value=0, max_value=image.shape[0]-1, step=1)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➕ Kern hinzufügen"):
+            st.session_state.manual_points.append((int(click_x), int(click_y)))
+    with col2:
+        if st.button("❌ Kern löschen"):
+            st.session_state.deleted_points.append((int(click_x), int(click_y)))
