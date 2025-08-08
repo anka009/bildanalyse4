@@ -77,4 +77,4 @@ if uploaded_file:
     for (x, y) in centers:
         cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
 
-    st.image(marked, caption=f"Gefundene Zellkerne: {len(centers)}", use_column_width=True)
+    st.image(marked, caption=f"Gefundene Zellkerne: {len(centers)}", use_container_width=True)
