@@ -67,7 +67,7 @@ if uploaded_file:
     # --- Bild markieren ---
     marked = image.copy()
     for (x, y) in centers:
-        cv2.circle(marked, (x, y), 8, (255, 0, 0), 2)
+        cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
 
     st.image(marked, caption=f"Gefundene Zellkerne: {len(centers)}", use_column_width=True)
 
