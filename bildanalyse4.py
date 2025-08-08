@@ -8,11 +8,6 @@ import io
 st.set_page_config(page_title="Interaktiver Zellkern-Zähler", layout="wide")
 st.title("🧬 Interaktiver Zellkern-Zähler")
 
-# --- Session-State für manuelle Punkte ---
-if "manual_points" not in st.session_state:
-    st.session_state.manual_points = []
-if "deleted_points" not in st.session_state:
-    st.session_state.deleted_points = []
 
 # --- Datei-Upload ---
 uploaded_file = st.file_uploader("🔍 Bild hochladen", type=["jpg", "png", "tif"])
@@ -58,12 +53,7 @@ if uploaded_file:
             cy = int(M["m01"] / M["m00"])
             centers.append((cx, cy))
 
-    # --- Manuelle Punkte hinzufügen ---
-    centers += st.session_state.manual_points
-
-    # --- Gelöschte Punkte rausfiltern ---
-    centers = [p for p in centers if p not in st.session_state.deleted_points]
-
+    
     # --- Bild markieren ---
     # 🛠 Benutzeroptionen für die Markierung
     st.sidebar.header("🔧 Markierungseinstellungen")
