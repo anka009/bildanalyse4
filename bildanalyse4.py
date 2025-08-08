@@ -24,7 +24,7 @@ if uploaded_file:
     st.sidebar.header("⚙️ Parameter")
     clip_limit = st.sidebar.slider("CLAHE Kontrastverstärkung", 1.0, 5.0, 2.0, 0.1)
     threshold_val = st.sidebar.slider("Threshold (Otsu-Offset)", -50, 50, 0, 1)
-    min_size = st.sidebar.slider("Mindestfläche (Pixel)", 10, 500, 50, 10)
+    min_size = st.sidebar.slider("Mindestfläche (Pixel)", 10, 5000, 100, 10)
 
     # --- CLAHE für besseren Kontrast ---
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
