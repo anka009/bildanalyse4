@@ -67,8 +67,8 @@ if uploaded_file:
     # --- Bild markieren ---
     # 🛠 Benutzeroptionen für die Markierung
     st.sidebar.header("🔧 Markierungseinstellungen")
-    radius = st.sidebar.slider("Kreisradius", 2, 20, 8)
-    line_thickness = st.sidebar.slider("Liniendicke", 1, 10, 2)
+    radius = st.sidebar.slider("Kreisradius", 2, 100, 8)
+    line_thickness = st.sidebar.slider("Liniendicke", 1, 30, 2)
     color = st.sidebar.color_picker("Farbe der Markierung", "#ff0000")  # Standard: Rot
 
     # 🎨 Farbe konvertieren von Hex zu BGR
