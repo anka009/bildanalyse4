@@ -72,20 +72,7 @@ if uploaded_file:
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("📥 CSV exportieren", data=csv, file_name="zellkerne.csv", mime="text/csv")
 
-    # --- Interaktive Klick-Events ---
-    st.subheader("✏️ Manuelle Korrektur")
-    st.write("🔹 **Linksklick**: Kern hinzufügen\n🔹 **Rechtsklick**: Kern löschen")
-
-    click_x = st.number_input("X-Koordinate", min_value=0, max_value=image.shape[1]-1, step=1)
-    click_y = st.number_input("Y-Koordinate", min_value=0, max_value=image.shape[0]-1, step=1)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("➕ Kern hinzufügen"):
-            st.session_state.manual_points.append((int(click_x), int(click_y)))
-    with col2:
-        if st.button("❌ Kern löschen"):
-            st.session_state.deleted_points.append((int(click_x), int(click_y)))
+    
     marked = image.copy()
     for (x, y) in centers:
         cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
