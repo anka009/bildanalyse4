@@ -63,7 +63,9 @@ if uploaded_file:
 
     # 🎨 Farbe konvertieren von Hex zu BGR
     hex_color = color.lstrip("#")
-    bgr_color = tuple(int(hex_color[i:i+2], 16) for i in (4, 2, 0))  # RGB → BGR
+    rgb_color = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))  # Hex → RGB
+    bgr_color = rgb_color[::-1]  # RGB → BGR für OpenCV
+
 
     
 
