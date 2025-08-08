@@ -75,11 +75,7 @@ if uploaded_file:
     hex_color = color.lstrip("#")
     bgr_color = tuple(int(hex_color[i:i+2], 16) for i in (4, 2, 0))  # RGB → BGR
 
-    marked = image.copy()
-    for (x, y) in centers:
-        cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
-
-    st.image(marked, caption=f"Gefundene Zellkerne: {len(centers)}", use_column_width=True)
+    
 
     # --- CSV Export ---
     df = pd.DataFrame(centers, columns=["X", "Y"])
@@ -100,3 +96,8 @@ if uploaded_file:
     with col2:
         if st.button("❌ Kern löschen"):
             st.session_state.deleted_points.append((int(click_x), int(click_y)))
+    marked = image.copy()
+    for (x, y) in centers:
+        cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
+
+    st.image(marked, caption=f"Gefundene Zellkerne: {len(centers)}", use_column_width=True)
