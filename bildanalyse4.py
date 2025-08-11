@@ -3,47 +3,73 @@ import cv2
 import numpy as np
 import pandas as pd
 from PIL import Image
-from streamlit_drawable_canvas import st_canvas
-import os
-import json
+import io
 
-st.set_page_config(page_title="🧬 Lernfähiger Zellkern-Zähler", layout="wide")
-st.title("🧬 Interaktiver Lern-Zellkern-Zähler")
+# -------------------- Streamlit Setup --------------------
+st.set_page_config(page_title="Interaktiver Zellkern-Zähler", layout="wide")
+st.title("🧬 Interaktiver Zellkern-Zähler (Optimiert)")
 
-# Ordner für Trainingsdaten (Korrekturen)
-os.makedirs("training_data", exist_ok=True)
-
-# --- Datei-Upload ---
+# -------------------- Datei-Upload --------------------
 uploaded_file = st.file_uploader("🔍 Bild hochladen", type=["jpg", "png", "tif", "tiff"])
 
 if uploaded_file:
-    # PIL Image laden (wichtig für st_canvas)
-    image_pil = Image.open(uploaded_file).convert("RGB")
-    image_np = np.array(image_pil)
+    image = np.array(Image.open(uploaded_file).convert("RGB"))
 
-    # --- Sidebar Parameter ---
-    st.sidebar.header("⚙️ Parameter")
-    clip_limit = st.sidebar.slider("CLAHE Kontrastverstärkung", 1.0, 5.0, 2.0, 0.1)
-    min_size = st.sidebar.slider("Mindestfläche (Pixel)", 10, 10000, 500, 10)
+    # -------------------- Sidebar Parameter --------------------
+    st.sidebar.header("⚙️ Manuelle Feineinstellungen (optional)")
+    min_size = st.sidebar.slider("Mindestfläche (Pixel)", 10, 20000, 1000, 10)
+    radius = st.sidebar.slider("Kreisradius Markierung", 2, 100, 8)
+    line_thickness = st.sidebar.slider("Liniendicke", 1, 30, 2)
+    color = st.sidebar.color_picker("Farbe der Markierung", "#ff0000")
 
-    # --- CLAHE Vorverarbeitung ---
-    gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+    # Farbkonvertierung für OpenCV
+    rgb_color = tuple(int(color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))
+    bgr_color = rgb_color[::-1]
+
+    # -------------------- Graustufen & CLAHE --------------------
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    contrast = gray.std()
+
+    # Automatische CLAHE-Wahl
+    if contrast < 40:
+        clip_limit = 4.0
+    elif contrast < 80:
+        clip_limit = 2.0
+    else:
+        clip_limit = 1.5
+
     clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
 
-    # --- Otsu Thresholding ---
+    # -------------------- Thresholding --------------------
+    # Otsu
     otsu_thresh, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    _, thresh = cv2.threshold(gray, otsu_thresh, 255, cv2.THRESH_BINARY)
+    _, mask_otsu = cv2.threshold(gray, otsu_thresh, 255, cv2.THRESH_BINARY)
 
-    # --- Invert falls Zellkerne dunkel sind ---
-    if np.mean(gray[thresh == 255]) > np.mean(gray[thresh == 0]):
-        thresh = cv2.bitwise_not(thresh)
+    # Adaptive
+    mask_adapt = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                       cv2.THRESH_BINARY, 35, 2)
 
-    # --- Morphologische Öffnung ---
-    kernel = np.ones((3, 3), np.uint8)
-    clean = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+    # Invertieren falls Kerne hell
+    def auto_invert(mask):
+        return cv2.bitwise_not(mask) if np.mean(gray[mask == 255]) > np.mean(gray[mask == 0]) else mask
 
-    # --- Konturen finden ---
+    mask_otsu = auto_invert(mask_otsu)
+    mask_adapt = auto_invert(mask_adapt)
+
+    # -------------------- Masken-Score --------------------
+    def score_mask(mask):
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        return len([c for c in cnts if min_size <= cv2.contourArea(c) <= 50000])
+
+    mask = mask_otsu if score_mask(mask_otsu) >= score_mask(mask_adapt) else mask_adapt
+
+    # -------------------- Morphologie --------------------
+    kernel_size = max(3, min(image.shape[0], image.shape[1]) // 300)
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
+
+    # -------------------- Konturen --------------------
     contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = [c for c in contours if cv2.contourArea(c) >= min_size]
 
@@ -55,55 +81,39 @@ if uploaded_file:
             cy = int(M["m01"] / M["m00"])
             centers.append((cx, cy))
 
-    # --- Markiertes Bild zum Anzeigen ---
-    marked = image_np.copy()
+    # -------------------- Statistik --------------------
+    pixel_size_um = 0.25  # Beispielwert: 0.25 µm/Pixel
+    area_mm2 = (image.shape[0] * pixel_size_um / 1000) * (image.shape[1] * pixel_size_um / 1000)
+    density = len(centers) / area_mm2
+
+    df = pd.DataFrame(centers, columns=["X", "Y"])
+    df["Fläche_Pixel"] = [cv2.contourArea(c) for c in contours]
+    df["Durchmesser_um"] = [np.sqrt(a/np.pi)*2*pixel_size_um for a in df["Fläche_Pixel"]]
+    df["Bildfläche_mm²"] = area_mm2
+    df["Kern_Dichte_pro_mm²"] = density
+
+    # -------------------- Markiertes Bild --------------------
+    marked = image.copy()
     for (x, y) in centers:
-        cv2.circle(marked, (x, y), 6, (255, 0, 0), 2)  # blau
+        cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
 
-    # --- Canvas für manuelle Korrektur ---
-    st.subheader("✏️ Manuelle Korrektur: Punkte hinzufügen")
+    # -------------------- Vergleichsansicht --------------------
+    col1, col2 = st.columns(2)
+    col1.image(image, caption="Original", use_container_width=True)
+    col2.image(marked, caption=f"Gefundene Kerne: {len(centers)}", use_container_width=True)
 
-    canvas_result = st_canvas(
-        fill_color="rgba(255, 0, 0, 0.5)",
-        stroke_width=5,
-        stroke_color="#FF0000",
-        background_image=image_pil,  # PIL Image hier verwenden!
-        update_streamlit=True,
-        height=image_pil.height,
-        width=image_pil.width,
-        drawing_mode="point",
-        key="canvas",
-    )
-
-    manual_points = []
-    if canvas_result.json_data and "objects" in canvas_result.json_data:
-        for obj in canvas_result.json_data["objects"]:
-            if "left" in obj and "top" in obj:
-                manual_points.append((int(obj["left"]), int(obj["top"])))
-
-    # --- Alle Punkte kombinieren ---
-    all_points = centers + manual_points
-
-    # --- Ergebnis anzeigen ---
-    marked_manual = image_np.copy()
-    for (x, y) in centers:
-        cv2.circle(marked_manual, (x, y), 6, (255, 0, 0), 2)  # automatisch blau
-    for (x, y) in manual_points:
-        cv2.circle(marked_manual, (x, y), 6, (0, 255, 0), 2)  # manuell grün
-
-    st.image(marked_manual, caption=f"Erkannte Kerne (blau) + Manuelle Punkte (grün)", use_container_width=True)
-
-    # --- CSV Export ---
-    df = pd.DataFrame(all_points, columns=["X", "Y"])
+    # -------------------- Downloads --------------------
     csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("📥 Zellkerne CSV exportieren", data=csv, file_name="zellkerne.csv", mime="text/csv")
+    st.download_button("📥 CSV exportieren", data=csv, file_name="zellkerne.csv", mime="text/csv")
 
-    # --- Feedback speichern ---
-    if st.button("💾 Feedback speichern"):
-        filename = os.path.join("training_data", f"{uploaded_file.name}_feedback.json")
-        with open(filename, "w") as f:
-            json.dump({"image": uploaded_file.name, "points": all_points}, f)
-        st.success(f"Feedback in {filename} gespeichert!")
+    _, img_buffer = cv2.imencode(".png", cv2.cvtColor(marked, cv2.COLOR_RGB2BGR))
+    st.download_button("📥 Bild mit Markierungen speichern",
+                       data=img_buffer.tobytes(),
+                       file_name="zellkerne_markiert.png",
+                       mime="image/png")
 
-else:
-    st.info("Bitte lade zuerst ein Bild hoch.")
+    # -------------------- Zusatzinfo --------------------
+    st.markdown(f"**📊 Statistische Auswertung:**")
+    st.write(f"- Gesamtanzahl: **{len(centers)}**")
+    st.write(f"- Bildfläche: **{area_mm2:.2f} mm²**")
+    st.write(f"- Dichte: **{density:.1f} Kerne/mm²**")
