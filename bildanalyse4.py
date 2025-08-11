@@ -1,130 +1,158 @@
 import streamlit as st
-import cv2
 import numpy as np
 import pandas as pd
+import cv2
+import os
 from PIL import Image
+from sklearn.ensemble import RandomForestClassifier
+from streamlit_drawable_canvas import st_canvas
+from skimage.feature import greycomatrix, greycoprops
+from skimage import measure
 
-# -------------------- Streamlit Setup --------------------
-st.set_page_config(page_title="Interaktiver Zellkern-Zähler", layout="wide")
-st.title("🧬 Interaktiver Zellkern-Zähler mit Watershed-Splitting")
+# --------------------------------------------------
+# Settings
+# --------------------------------------------------
+st.set_page_config(page_title="🧪 Interaktiver Lern-Zellkern-Zähler", layout="wide")
+st.title("🧪 Interaktiver Lern-Zellkern-Zähler mit Watershed + Selbstlernen")
 
-# -------------------- Datei-Upload --------------------
-uploaded_file = st.file_uploader("🔍 Bild hochladen", type=["jpg", "png", "tif", "tiff"])
+FEEDBACK_FILE = "feedback.csv"
+MODEL_FILE = "model.pkl"
 
-if uploaded_file:
-    image = np.array(Image.open(uploaded_file).convert("RGB"))
+# --------------------------------------------------
+# Helper Functions
+# --------------------------------------------------
+def extract_features(image, coords, patch_size=9):
+    """Extrahiert einfache Textur- und Farbfeatures an gegebenen Koordinaten."""
+    features = []
+    half = patch_size // 2
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    for (x, y) in coords:
+        x, y = int(x), int(y)
+        patch = gray[max(0, y-half):y+half+1, max(0, x-half):x+half+1]
+        if patch.size == 0:
+            continue
+        # GLCM-Textur
+        glcm = greycomatrix(patch, [1], [0], symmetric=True, normed=True)
+        contrast = greycoprops(glcm, 'contrast')[0, 0]
+        homogeneity = greycoprops(glcm, 'homogeneity')[0, 0]
+        mean_intensity = np.mean(patch)
+        features.append([mean_intensity, contrast, homogeneity])
+    return np.array(features)
 
-    # -------------------- Sidebar Parameter --------------------
-    st.sidebar.header("⚙️ Parameter")
-    min_size = st.sidebar.slider("Mindestfläche (Pixel)", 10, 20000, 1000, 10)
-    radius = st.sidebar.slider("Kreisradius Markierung", 2, 100, 8)
-    line_thickness = st.sidebar.slider("Liniendicke", 1, 30, 2)
-    color = st.sidebar.color_picker("Farbe der Markierung", "#ff0000")
+def detect_nuclei(image):
+    """Watershed-basierte automatische Zellkern-Erkennung."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    gray_clahe = clahe.apply(gray)
 
-    # Farbkonvertierung für OpenCV
-    rgb_color = tuple(int(color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))
-    bgr_color = rgb_color[::-1]
+    # Threshold + Morphologie
+    _, thresh = cv2.threshold(gray_clahe, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+    kernel = np.ones((3,3), np.uint8)
+    opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
 
-    # -------------------- Graustufen & CLAHE --------------------
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    contrast = gray.std()
-
-    # Automatische CLAHE-Wahl
-    if contrast < 40:
-        clip_limit = 4.0
-    elif contrast < 80:
-        clip_limit = 2.0
-    else:
-        clip_limit = 1.5
-
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
-    gray = clahe.apply(gray)
-
-    # -------------------- Thresholding --------------------
-    otsu_thresh, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    _, mask_otsu = cv2.threshold(gray, otsu_thresh, 255, cv2.THRESH_BINARY)
-
-    mask_adapt = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                       cv2.THRESH_BINARY, 35, 2)
-
-    def auto_invert(mask):
-        return cv2.bitwise_not(mask) if np.mean(gray[mask == 255]) > np.mean(gray[mask == 0]) else mask
-
-    mask_otsu = auto_invert(mask_otsu)
-    mask_adapt = auto_invert(mask_adapt)
-
-    def score_mask(mask):
-        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        return len([c for c in cnts if min_size <= cv2.contourArea(c) <= 50000])
-
-    mask = mask_otsu if score_mask(mask_otsu) >= score_mask(mask_adapt) else mask_adapt
-
-    # -------------------- Morphologie --------------------
-    kernel_size = max(3, min(image.shape[0], image.shape[1]) // 300)
-    kernel = np.ones((kernel_size, kernel_size), np.uint8)
-    clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
-
-    # -------------------- Watershed-Splitting --------------------
-    dist_transform = cv2.distanceTransform(clean, cv2.DIST_L2, 5)
-    _, sure_fg = cv2.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
+    sure_bg = cv2.dilate(opening, kernel, iterations=3)
+    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+    _, sure_fg = cv2.threshold(dist_transform, 0.5*dist_transform.max(), 255, 0)
     sure_fg = np.uint8(sure_fg)
-
-    sure_bg = cv2.dilate(clean, kernel, iterations=3)
     unknown = cv2.subtract(sure_bg, sure_fg)
 
+    # Marker-Berechnung
     _, markers = cv2.connectedComponents(sure_fg)
     markers = markers + 1
     markers[unknown == 255] = 0
+    markers = cv2.watershed(image, markers)
 
-    img_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-    markers = cv2.watershed(img_bgr, markers)
-    clean[markers == -1] = 0  # Trennt die Linien
-
-    # -------------------- Konturen --------------------
-    contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = [c for c in contours if cv2.contourArea(c) >= min_size]
-
+    # Zentren berechnen
     centers = []
-    for c in contours:
-        M = cv2.moments(c)
-        if M["m00"] != 0:
-            cx = int(M["m10"] / M["m00"])
-            cy = int(M["m01"] / M["m00"])
-            centers.append((cx, cy))
+    for region in measure.regionprops(markers):
+        if region.area >= 10:  # Mindestgröße
+            y, x = region.centroid
+            centers.append((x, y))
+    return centers
 
-    # -------------------- Statistik --------------------
-    pixel_size_um = 0.25  # Beispielwert
-    area_mm2 = (image.shape[0] * pixel_size_um / 1000) * (image.shape[1] * pixel_size_um / 1000)
-    density = len(centers) / area_mm2
+def save_feedback(img_name, coords, label):
+    """Speichert Feedbackpunkte in CSV."""
+    df = pd.DataFrame(coords, columns=["x", "y"])
+    df["image"] = img_name
+    df["label"] = label
+    if os.path.exists(FEEDBACK_FILE):
+        df.to_csv(FEEDBACK_FILE, mode='a', header=False, index=False)
+    else:
+        df.to_csv(FEEDBACK_FILE, index=False)
 
-    df = pd.DataFrame(centers, columns=["X", "Y"])
-    df["Fläche_Pixel"] = [cv2.contourArea(c) for c in contours]
-    df["Durchmesser_um"] = [np.sqrt(a/np.pi)*2*pixel_size_um for a in df["Fläche_Pixel"]]
-    df["Bildfläche_mm²"] = area_mm2
-    df["Kern_Dichte_pro_mm²"] = density
+def train_model():
+    """Trainiert ein RandomForest aus Feedback."""
+    if not os.path.exists(FEEDBACK_FILE):
+        return None
+    df = pd.read_csv(FEEDBACK_FILE)
+    if df.empty:
+        return None
+    X, y = [], []
+    for img_name in df["image"].unique():
+        img = cv2.imread(img_name)
+        subset = df[df["image"] == img_name]
+        coords = list(zip(subset["x"], subset["y"]))
+        feats = extract_features(img, coords)
+        if feats.shape[0] != subset.shape[0]:
+            continue
+        X.extend(feats)
+        y.extend([1 if lbl == "korrekt" else 0 for lbl in subset["label"]])
+    if len(X) > 0:
+        model = RandomForestClassifier(n_estimators=50)
+        model.fit(X, y)
+        return model
+    return None
 
-    # -------------------- Markiertes Bild --------------------
+def apply_model_filter(image, centers, model):
+    """Filtert die erkannten Kerne mit ML-Modell."""
+    if model is None or len(centers) == 0:
+        return centers
+    feats = extract_features(image, centers)
+    if feats.shape[0] == 0:
+        return centers
+    preds = model.predict(feats)
+    filtered = [c for c, p in zip(centers, preds) if p == 1]
+    return filtered
+
+# --------------------------------------------------
+# UI
+# --------------------------------------------------
+uploaded_file = st.file_uploader("📂 Bild hochladen", type=["png", "jpg", "jpeg"])
+if uploaded_file:
+    img_name = uploaded_file.name
+    image = np.array(Image.open(uploaded_file).convert("RGB"))
+    image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    # ML-Modell laden/trainieren
+    model = train_model()
+
+    # Automatische Erkennung
+    centers = detect_nuclei(image_bgr)
+    centers = apply_model_filter(image_bgr, centers, model)
+
+    # Markiertes Bild anzeigen
     marked = image.copy()
     for (x, y) in centers:
-        cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
+        cv2.circle(marked, (int(x), int(y)), 5, (255, 0, 0), 2)
+    st.image(marked, caption=f"{len(centers)} Kerne erkannt")
 
-    # -------------------- Vergleichsansicht --------------------
-    col1, col2 = st.columns(2)
-    col1.image(image, caption="Original", use_container_width=True)
-    col2.image(marked, caption=f"Gefundene Kerne (nach Watershed): {len(centers)}", use_container_width=True)
+    # Interaktive Korrektur
+    st.subheader("🔧 Korrektur vornehmen")
+    mode = st.radio("Modus wählen:", ["korrekt", "hinzufügen", "löschen"])
+    canvas_result = st_canvas(
+        background_image=Image.fromarray(marked),
+        update_streamlit=True,
+        height=image.shape[0],
+        width=image.shape[1],
+        drawing_mode="point",
+        point_display_radius=5,
+        stroke_color="#FF0000" if mode == "löschen" else "#00FF00",
+        key="canvas"
+    )
 
-    # -------------------- Downloads --------------------
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("📥 CSV exportieren", data=csv, file_name="zellkerne.csv", mime="text/csv")
+    if st.button("💾 Feedback speichern"):
+        if canvas_result.json_data and "objects" in canvas_result.json_data:
+            coords = [(obj["left"], obj["top"]) for obj in canvas_result.json_data["objects"]]
+            save_feedback(img_name, coords, mode)
+            st.success(f"{len(coords)} Punkte als '{mode}' gespeichert.")
 
-    _, img_buffer = cv2.imencode(".png", cv2.cvtColor(marked, cv2.COLOR_RGB2BGR))
-    st.download_button("📥 Bild mit Markierungen speichern",
-                       data=img_buffer.tobytes(),
-                       file_name="zellkerne_markiert.png",
-                       mime="image/png")
-
-    # -------------------- Zusatzinfo --------------------
-    st.markdown(f"**📊 Statistische Auswertung:**")
-    st.write(f"- Gesamtanzahl: **{len(centers)}**")
-    st.write(f"- Bildfläche: **{area_mm2:.2f} mm²**")
-    st.write(f"- Dichte: **{density:.1f} Kerne/mm²**")
