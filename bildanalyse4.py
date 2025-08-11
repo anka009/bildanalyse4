@@ -3,11 +3,10 @@ import cv2
 import numpy as np
 import pandas as pd
 from PIL import Image
-import io
 
 # -------------------- Streamlit Setup --------------------
 st.set_page_config(page_title="Interaktiver Zellkern-Zähler", layout="wide")
-st.title("🧬 Interaktiver Zellkern-Zähler (Optimiert)")
+st.title("🧬 Interaktiver Zellkern-Zähler mit Watershed-Splitting")
 
 # -------------------- Datei-Upload --------------------
 uploaded_file = st.file_uploader("🔍 Bild hochladen", type=["jpg", "png", "tif", "tiff"])
@@ -16,7 +15,7 @@ if uploaded_file:
     image = np.array(Image.open(uploaded_file).convert("RGB"))
 
     # -------------------- Sidebar Parameter --------------------
-    st.sidebar.header("⚙️ Manuelle Feineinstellungen (optional)")
+    st.sidebar.header("⚙️ Parameter")
     min_size = st.sidebar.slider("Mindestfläche (Pixel)", 10, 20000, 1000, 10)
     radius = st.sidebar.slider("Kreisradius Markierung", 2, 100, 8)
     line_thickness = st.sidebar.slider("Liniendicke", 1, 30, 2)
@@ -42,22 +41,18 @@ if uploaded_file:
     gray = clahe.apply(gray)
 
     # -------------------- Thresholding --------------------
-    # Otsu
     otsu_thresh, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     _, mask_otsu = cv2.threshold(gray, otsu_thresh, 255, cv2.THRESH_BINARY)
 
-    # Adaptive
     mask_adapt = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                        cv2.THRESH_BINARY, 35, 2)
 
-    # Invertieren falls Kerne hell
     def auto_invert(mask):
         return cv2.bitwise_not(mask) if np.mean(gray[mask == 255]) > np.mean(gray[mask == 0]) else mask
 
     mask_otsu = auto_invert(mask_otsu)
     mask_adapt = auto_invert(mask_adapt)
 
-    # -------------------- Masken-Score --------------------
     def score_mask(mask):
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         return len([c for c in cnts if min_size <= cv2.contourArea(c) <= 50000])
@@ -68,6 +63,22 @@ if uploaded_file:
     kernel_size = max(3, min(image.shape[0], image.shape[1]) // 300)
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
     clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
+
+    # -------------------- Watershed-Splitting --------------------
+    dist_transform = cv2.distanceTransform(clean, cv2.DIST_L2, 5)
+    _, sure_fg = cv2.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
+    sure_fg = np.uint8(sure_fg)
+
+    sure_bg = cv2.dilate(clean, kernel, iterations=3)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    _, markers = cv2.connectedComponents(sure_fg)
+    markers = markers + 1
+    markers[unknown == 255] = 0
+
+    img_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    markers = cv2.watershed(img_bgr, markers)
+    clean[markers == -1] = 0  # Trennt die Linien
 
     # -------------------- Konturen --------------------
     contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -82,7 +93,7 @@ if uploaded_file:
             centers.append((cx, cy))
 
     # -------------------- Statistik --------------------
-    pixel_size_um = 0.25  # Beispielwert: 0.25 µm/Pixel
+    pixel_size_um = 0.25  # Beispielwert
     area_mm2 = (image.shape[0] * pixel_size_um / 1000) * (image.shape[1] * pixel_size_um / 1000)
     density = len(centers) / area_mm2
 
@@ -100,7 +111,7 @@ if uploaded_file:
     # -------------------- Vergleichsansicht --------------------
     col1, col2 = st.columns(2)
     col1.image(image, caption="Original", use_container_width=True)
-    col2.image(marked, caption=f"Gefundene Kerne: {len(centers)}", use_container_width=True)
+    col2.image(marked, caption=f"Gefundene Kerne (nach Watershed): {len(centers)}", use_container_width=True)
 
     # -------------------- Downloads --------------------
     csv = df.to_csv(index=False).encode("utf-8")
